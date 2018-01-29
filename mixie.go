@@ -1,4 +1,4 @@
-package Mixie
+package main
 
 import (
 	"fmt"
@@ -8,10 +8,11 @@ import (
 )
 
 func main() {
-	const host string = "172.28.128.6"
+	const host string = "172.28.128.3"
 	const port int = 5672
-	connectionString := fmt.Sprintf("amqp://testuser:foobar@%s:%d/", host, port)
+	connectionString := fmt.Sprintf("amqp://gx_provider1:foobar123@%s:%d/", host, port)
 	conn, err := amqp.Dial(connectionString)
+	defer conn.Close()
 
 	failOnError(err, "Failed to connect to RabbitMQ")
 
@@ -19,29 +20,50 @@ func main() {
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare(
-		"hello", // name
-		false,   // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
-	)
+	exchangeName := "foo"
+	exchangeNameDead := fmt.Sprint(exchangeName, ".dead")
+
+	args := make(map[string]string)
+	args["x-dead-letter-exchange"] = "some.exchange.name"
+
+	declareExchange(ch, exchangeName)
+	declareExchange(ch, exchangeNameDead, args)
+
 	failOnError(err, "Failed to declare a queue")
 
 	body := "hello"
-	err = ch.Publish(
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
-		false,  // immediate
+
+	for i := 1; i <= 10; i++ {
+		go publishMessage(ch, exchangeName, body)
+	}
+
+}
+
+func declareExchange(ch *amqp.Channel, myname string, args ...map[string]string) {
+
+	err := ch.ExchangeDeclare(
+		myname,   // name
+		"direct", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		args,     // arguments
+	)
+	failOnError(err, "Failed to declare an exchange")
+}
+
+func publishMessage(ch *amqp.Channel, exchangeName string, body string) {
+	err := ch.Publish(
+		exchangeName, // exchange
+		"",           // routing key
+		false,        // mandatory
+		false,        // immediate
 		amqp.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(body),
 		})
 	failOnError(err, "Failed to publish a message")
-
-	defer conn.Close()
 }
 
 func failOnError(err error, msg string) {
