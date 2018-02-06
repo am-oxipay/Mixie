@@ -8,9 +8,9 @@ import (
 )
 
 func main() {
-	const host string = "172.28.128.3"
+	const host string = "172.28.128.7"
 	const port int = 5672
-	connectionString := fmt.Sprintf("amqp://gx_provider1:foobar123@%s:%d/", host, port)
+	connectionString := fmt.Sprintf("amqp://gx_admin:foobar123@%s:%d/", host, port)
 	conn, err := amqp.Dial(connectionString)
 	defer conn.Close()
 
@@ -31,12 +31,14 @@ func main() {
 	declareExchange(ch, exchangeNameDead, nil)
 	declareQueue(ch, queueName, nil)
 
-	body := "hello"
+	body := "hello "
 
-	for i := 1; i <= 10; i++ {
-		go publishMessage(ch, exchangeName, body)
+	for i := 1; i <= 1000000; i++ {
+		declareExchange(ch, exchangeName, args)
+		go publishMessage(ch, exchangeName, queueName, fmt.Sprintf("%s %d", body, i))
 	}
 
+	// consumeMessages(ch, queueName)
 }
 
 func declareExchange(ch *amqp.Channel, myname string, args amqp.Table) {
@@ -54,10 +56,10 @@ func declareExchange(ch *amqp.Channel, myname string, args amqp.Table) {
 	failOnError(err, "Failed to declare a queue", successMsg)
 }
 
-func publishMessage(ch *amqp.Channel, exchangeName string, body string) {
+func publishMessage(ch *amqp.Channel, exchangeName string, key string, body string) {
 	err := ch.Publish(
 		exchangeName, // exchange
-		"",           // routing key
+		key,          // routing key
 		true,         // mandatory
 		false,        // immediate
 		amqp.Publishing{
@@ -67,10 +69,10 @@ func publishMessage(ch *amqp.Channel, exchangeName string, body string) {
 	failOnError(err, "Failed to publish a message to "+exchangeName, "Message Published Successfully")
 }
 
-func consumeMessages(ch *amqp.Channel, queueName string, body string) {
+func consumeMessages(ch *amqp.Channel, queueName string) {
 	msgs, err := ch.Consume(
 		queueName, // queue
-		"",        // consumer
+		"myname",  // consumer
 		true,      // auto-ack
 		false,     // exclusive
 		false,     // no-local
@@ -86,11 +88,12 @@ func consumeMessages(ch *amqp.Channel, queueName string, body string) {
 
 		}
 	}()
+	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
 	<-forever
 }
 
-func declareQueue(ch *amqp.Channel, queueName string, args amqp.Table) {
-	_, err := ch.QueueDeclare(
+func declareQueue(ch *amqp.Channel, queueName string, args amqp.Table) amqp.Queue {
+	q, err := ch.QueueDeclare(
 		queueName, // name
 		true,      // durable
 		false,     // delete when unused
@@ -99,6 +102,7 @@ func declareQueue(ch *amqp.Channel, queueName string, args amqp.Table) {
 		args,      // arguments
 	)
 	failOnError(err, "Failed to declare a queue", "Declared Queue: "+queueName)
+	return q
 }
 
 func failOnError(err error, failure string, success string) {
